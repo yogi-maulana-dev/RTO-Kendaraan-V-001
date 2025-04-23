@@ -1,0 +1,9 @@
+curl -X POST http://127.0.0.1:8000/api/tambah-data.php \
+     -H "Content-Type: application/json" \
+     -d '{
+         "nama_lengkap": "John Doe",
+         "alamat": "Jakarta",
+         "no_telepon": "08123456789",
+         "email": "john@example.com",
+         "password": "password123"
+     }'

@@ -1,12 +1,14 @@
 <?php
-$namaserver="localhost";
-$username="root";
-$password="yrka1234";
-$database="rtoap";
+$servername = "localhost";
+$username = "root"; // Ganti dengan username database Anda
+$password = "yrka1234"; // Ganti dengan password database Anda
+$dbname = "rtoap"; // Ganti dengan nama database Anda
 
-$koneksi =new mysqli($namaserver,$username,$password,$database);
+// Buat koneksi
+$koneksi = new mysqli($servername, $username, $password, $dbname);
 
-if($koneksi->connect_error){
-    die("Koneksi gagal:".$koneksi->connect_error);
+// Cek koneksi
+if ($koneksi->connect_error) {
+    die("Connection failed: " . $koneksi->connect_error);
 }
 ?>

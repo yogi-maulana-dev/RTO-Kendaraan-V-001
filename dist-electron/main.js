@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { ipcMain, dialog, app, BrowserWindow } from "electron";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -14,7 +14,12 @@ function createWindow() {
   win = new BrowserWindow({
     icon: path.join(process.env.VITE_PUBLIC, "electron-vite.svg"),
     webPreferences: {
-      preload: path.join(__dirname, "preload.mjs")
+      preload: path.join(__dirname, "preload.mjs"),
+      // Pastikan path benar
+      contextIsolation: true,
+      // Wajib diaktifkan untuk keamanan
+      enableRemoteModule: false
+      // Nonaktifkan remote module untuk keamanan
     }
   });
   win.webContents.on("did-finish-load", () => {
@@ -25,7 +30,13 @@ function createWindow() {
   } else {
     win.loadFile(path.join(RENDERER_DIST, "index.html"));
   }
+  if (VITE_DEV_SERVER_URL) {
+    win.webContents.openDevTools();
+  }
 }
+ipcMain.handle("show-message-box", async (event, options) => {
+  return await dialog.showMessageBox(options);
+});
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();

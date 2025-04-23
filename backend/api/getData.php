@@ -13,7 +13,7 @@ if($koneksi->connect_error){
 }
 
 $sql = "SELECT user_id,nama_lengkap,alamat, no_telepon,email,password, tanggal_daftar FROM users";
-$hasil =$koneksi->query($sql);
+$hasil =$koneksi->query($sql); //masalah vaiabel
 
 if(!$hasil){
     echo json_encode([
