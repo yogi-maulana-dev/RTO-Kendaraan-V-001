@@ -12,7 +12,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
-// Include koneksi database
+// // Perbaiki path include
+// include_once __DIR__ . '/db.php'; // pastikan file ini mendefinisikan $koneksi
+
 include_once __DIR__ . '/../server/db.php';
 
 // Cek apakah $koneksi sudah tersedia
@@ -30,12 +32,12 @@ if (empty($data->email) || empty($data->password)) {
     echo json_encode(["success" => false, "message" => "Email dan password harus diisi"]);
     exit();
 }
-
+// Ambil email dan password dari input
 $email = $data->email;
 $password = $data->password;
 
-// Proses login
-$stmt = $koneksi->prepare("SELECT admin_id, password, is_verified FROM admins WHERE email = ?");
+// Cek apakah email ada dalam tabel users
+$stmt = $koneksi->prepare("SELECT user_id, password, is_verified FROM users WHERE email = ?");
 $stmt->bind_param("s", $email);
 $stmt->execute();
 $result = $stmt->get_result();
@@ -48,16 +50,16 @@ if ($result->num_rows === 0) {
 
 $user = $result->fetch_assoc();
 
-// Verifikasi password dengan password yang di-hash
+// Verifikasi password
 if (!password_verify($password, $user['password'])) {
     http_response_code(401);
     echo json_encode(["success" => false, "message" => "Password salah"]);
     exit();
 }
 
-// Cek apakah pengguna sudah terverifikasi
+// Cek apakah email sudah terverifikasi
 if ($user['is_verified'] == 0) {
-    // Cek token verifikasi di tabel email_verification
+    // Cek token di tabel email_verification
     $verification_stmt = $koneksi->prepare("SELECT token, expires_at FROM email_verification WHERE email = ?");
     $verification_stmt->bind_param("s", $email);
     $verification_stmt->execute();
@@ -88,15 +90,15 @@ if ($user['is_verified'] == 0) {
         "success" => false,
         "message" => "Email perlu diverifikasi.",
         "need_verification" => true, // Indikasi bahwa verifikasi diperlukan
-        "admin_id" => $user['admin_id'] // Kirimkan admin_id untuk proses verifikasi lebih lanjut
+        "user_id" => $user['user_id'] // Kirimkan user_id untuk proses verifikasi lebih lanjut
     ]);
     exit();
 }
 
 // Jika email terverifikasi, lanjutkan ke proses login
 $token = bin2hex(random_bytes(32));
-$update_stmt = $koneksi->prepare("UPDATE admins SET token = ? WHERE admin_id = ?");
-$update_stmt->bind_param("si", $token, $user['admin_id']);
+$update_stmt = $koneksi->prepare("UPDATE users SET token = ? WHERE user_id = ?");
+$update_stmt->bind_param("si", $token, $user['user_id']);
 
 if (!$update_stmt->execute()) {
     http_response_code(500);
@@ -109,5 +111,3 @@ echo json_encode([
     "token" => $token,
     "message" => "Login berhasil"
 ]);
-
-?>

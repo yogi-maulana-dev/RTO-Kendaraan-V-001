@@ -34,11 +34,6 @@ const Login = () => {
       if (result.success && result.token) {
         authLogin(result.token);
         navigate('/dashboard');
-      } else if (result.need_verification) {
-        // Kalau butuh verifikasi
-        localStorage.setItem('userIdForVerification', result.user_id); // Simpan user_id
-        localStorage.setItem('userEmailForVerification', email); // Simpan email juga
-        navigate('/verify-token'); // Pindah ke halaman verifikasi token
       } else {
         setError(result.message || 'Email atau password salah');
       }

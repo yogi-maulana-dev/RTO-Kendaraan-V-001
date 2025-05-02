@@ -1,112 +1,179 @@
 <?php
-// backend/api/register.php
 
-// Header untuk CORS dan JSON response
+date_default_timezone_set('Asia/Jakarta');
+
+
+// backend/api/auth.php
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Methods: POST");
 header("Access-Control-Max-Age: 3600");
 header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
 
-include_once 'db.php';
-
-// Ambil data dari input
-$data = json_decode(file_get_contents("php://input"));
-
-// Validasi input JSON
-if (!$data || !isset($data->email) || !isset($data->password)) {
-    http_response_code(400);
-    echo json_encode([
-        "success" => false,
-        "message" => "Data input tidak valid"
-    ]);
+// Handle OPTIONS request
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
     exit();
 }
 
-$email = trim($data->email);
-$password = trim($data->password);
+// Load DB
+include_once __DIR__ . '/../server/db.php';
 
-// Validasi input
-$errors = [];
+// Load PHPMailer
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+require 'vendor/autoload.php';
 
-// Validasi email
-if (empty($email)) {
-    $errors[] = "Email harus diisi";
-} elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-    $errors[] = "Format email tidak valid";
-}
 
-// Validasi password
-if (empty($password)) {
-    $errors[] = "Password harus diisi";
-} elseif (strlen($password) < 8) {
-    $errors[] = "Password minimal 8 karakter";
-} elseif (!preg_match('/[A-Z]/', $password)) {
-    $errors[] = "Password harus mengandung minimal 1 huruf kapital";
-} elseif (!preg_match('/[0-9]/', $password)) {
-    $errors[] = "Password harus mengandung minimal 1 angka";
-}
 
-// Jika ada error, tampilkan response
-if (!empty($errors)) {
-    http_response_code(400);
-    echo json_encode([
-        "success" => false,
-        "message" => "Validasi gagal",
-        "errors" => $errors
-    ]);
-    exit();
-}
+$response = ['success' => false, 'message' => ''];
 
-// Cek apakah email sudah terdaftar
-$check_stmt = $conn->prepare("SELECT id FROM users WHERE email = ?");
-$check_stmt->bind_param("s", $email);
-$check_stmt->execute();
-$check_stmt->store_result();
-
-if ($check_stmt->num_rows > 0) {
-    http_response_code(409);
-    echo json_encode([
-        "success" => false,
-        "message" => "Email sudah digunakan"
-    ]);
-    exit();
-}
-
-// Generate password hash
-$hashed_password = password_hash($password, PASSWORD_DEFAULT);
-
-// Insert ke database dengan prepared statement
-$insert_stmt = $conn->prepare("INSERT INTO users (email, password) VALUES (?, ?)");
-$insert_stmt->bind_param("ss", $email, $hashed_password);
-
-if ($insert_stmt->execute()) {
-    // Dapatkan data user yang baru dibuat
-    $new_user_id = $insert_stmt->insert_id;
-    $get_user_stmt = $conn->prepare("SELECT id, email FROM users WHERE id = ?");
-    $get_user_stmt->bind_param("i", $new_user_id);
-    $get_user_stmt->execute();
-    $result = $get_user_stmt->get_result();
-    $user = $result->fetch_assoc();
-    
-    http_response_code(201);
-    echo json_encode([
-        "success" => true,
-        "message" => "Registrasi berhasil",
-        "data" => $user
-    ]);
-} else {
+// Cek koneksi DB
+if (!isset($koneksi) || $koneksi->connect_error) {
     http_response_code(500);
-    echo json_encode([
-        "success" => false,
-        "message" => "Terjadi kesalahan sistem",
-        "error" => $conn->error
-    ]);
+    echo json_encode(["success" => false, "message" => "Database connection failed: " . $koneksi->connect_error]);
+    exit();
 }
 
-// Tutup koneksi
-$check_stmt->close();
-$insert_stmt->close();
-$get_user_stmt->close();
-$conn->close();
+try {
+    $input = file_get_contents('php://input');
+    $data = json_decode($input, true);
+
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        throw new Exception("Invalid JSON format");
+    }
+
+    // Hapus 'action' kalau ada
+    if (isset($data['action'])) {
+        unset($data['action']);
+    }
+
+    // Validasi
+    $requiredFields = ['nama_lengkap', 'alamat', 'no_telepon', 'email', 'password'];
+    foreach ($requiredFields as $field) {
+        if (empty($data[$field])) {
+            throw new Exception("Field $field harus diisi");
+        }
+    }
+
+    if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
+        throw new Exception("Format email tidak valid");
+    }
+
+    if (strlen($data['email']) > 255) {
+        throw new Exception("Email maksimal 255 karakter");
+    }
+
+    if (!preg_match('/^[0-9]{10,20}$/', $data['no_telepon'])) {
+        throw new Exception("Nomor telepon 10-20 digit angka");
+    }
+
+    // Cek apakah email/no_telepon sudah terdaftar
+    $checkQuery = $koneksi->prepare("SELECT email, no_telepon FROM admins WHERE email = ? OR no_telepon = ?");
+    if (!$checkQuery) {
+        throw new Exception("Database error: " . $koneksi->error);
+    }
+    $checkQuery->bind_param("ss", $data['email'], $data['no_telepon']);
+    $checkQuery->execute();
+    $result = $checkQuery->get_result();
+
+    if ($result->num_rows > 0) {
+        $existing = $result->fetch_assoc();
+        $conflict = [];
+        if ($existing['email'] === $data['email']) $conflict[] = 'email';
+        if ($existing['no_telepon'] === $data['no_telepon']) $conflict[] = 'nomor telepon';
+        throw new Exception("Data sudah terdaftar: " . implode(', ', $conflict));
+    }
+
+    $koneksi->begin_transaction();
+
+    try {
+        // Hash password
+        $hashedPassword = password_hash($data['password'], PASSWORD_DEFAULT);
+
+        // Insert user
+        $insertUser = $koneksi->prepare("
+            INSERT INTO admins (
+                nama_lengkap, alamat, no_telepon, email, password, tanggal_daftar, is_verified
+            ) VALUES (?, ?, ?, ?, ?, CURDATE(), 0)
+        ");
+        if (!$insertUser) {
+            throw new Exception("Database error: " . $koneksi->error);
+        }
+        $insertUser->bind_param(
+            "sssss",
+            $data['nama_lengkap'],
+            $data['alamat'],
+            $data['no_telepon'],
+            $data['email'],
+            $hashedPassword
+        );
+        if (!$insertUser->execute()) {
+            throw new Exception("Gagal menyimpan user: " . $insertUser->error);
+        }
+        $userId = $insertUser->insert_id;
+        $insertUser->close();
+
+        // Buat token verifikasi
+        $token = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        $expiresAt = date('Y-m-d H:i:s', strtotime('+1 hour'));
+
+        $insertToken = $koneksi->prepare("
+            INSERT INTO email_verification (email, token, expires_at)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE token = VALUES(token), expires_at = VALUES(expires_at)
+        ");
+        if (!$insertToken) {
+            throw new Exception("Database error: " . $koneksi->error);
+        }
+        $insertToken->bind_param("sss", $data['email'], $token, $expiresAt);
+        if (!$insertToken->execute()) {
+            throw new Exception("Gagal menyimpan token: " . $insertToken->error);
+        }
+        $insertToken->close();
+
+        $koneksi->commit();
+
+        // Kirim email verifikasi
+        try {
+            $mail = new PHPMailer(true);
+            $mail->isSMTP();
+            $mail->Host       = 'mail.uml.ac.id';
+            $mail->SMTPAuth   = true;
+            $mail->Username   = 'admin@uml.ac.id';
+            $mail->Password   = '@IT2U0m2l31234';
+            $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+            $mail->Port       = 587;
+
+            $mail->setFrom('admin@uml.ac.id', 'Admin UML');
+            $mail->addAddress($data['email']);
+            $mail->Subject = 'Verifikasi Email Anda';
+            $mail->Body    = "Kode verifikasi Anda: $token\nKode kadaluarsa dalam 1 jam.";
+
+            $mail->send();
+            $mailStatus = "Email verifikasi telah dikirim";
+        } catch (Exception $e) {
+            error_log("Mailer Error: {$mail->ErrorInfo}");
+            $mailStatus = "Email verifikasi gagal dikirim: {$mail->ErrorInfo}";
+        }
+
+        $response = [
+            'success' => true,
+            'message' => 'Registrasi berhasil! ' . $mailStatus,
+            'user_id' => $userId
+        ];
+
+    } catch (Exception $e) {
+        $koneksi->rollback();
+        throw $e;
+    }
+} catch (Exception $e) {
+    $response['message'] = $e->getMessage();
+    http_response_code(400);
+} finally {
+    echo json_encode($response);
+    if (isset($koneksi) && !$koneksi->connect_error) {
+        $koneksi->close();
+    }
+}
 ?>

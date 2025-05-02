@@ -37,7 +37,7 @@ export const login = async (email: string, password: string) => {
         success: false,
         message: data.message || "Email perlu diverifikasi",
         need_verification: true, // Memberikan informasi bahwa verifikasi diperlukan
-        admin_id: data.admin_id, // Mengirimkan admin_id untuk proses verifikasi lebih lanjut
+        user_id: data.user_id, // Mengirimkan user_id untuk proses verifikasi lebih lanjut
       };
     }
 
@@ -58,7 +58,7 @@ export const login = async (email: string, password: string) => {
 // services/api.ts
 
 export interface User {
-  admin_id?: number;
+  user_id?: number;
   nama_lengkap: string;
   alamat: string;
   no_telepon: string;
@@ -124,30 +124,9 @@ export const getDatabaseStatus = async () => {
   }
 };
 
-export const resendToken = async (email: string) => {
-  try {
-    const response = await fetch(`${BASE_URL}/resend-token.php`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
-
-    // Ambil respons mentah
-    const rawText = await response.text();
-    console.log("Raw response:", rawText); // Log respons mentah dari server
-
-    // Parsing respons sebagai JSON jika valid
-    const data = JSON.parse(rawText);
-    return data;
-  } catch (error) {
-    console.error("Resend token error:", error);
-    return { success: false, message: "Terjadi kesalahan jaringan" };
-  }
-};
-
 // Definisi tipe untuk data respons pendaftaran
 export interface RegisterResponseData {
-  admin_id?: number;
+  user_id?: number;
   message?: string;
 }
 
@@ -216,10 +195,89 @@ export const registerUser = async (
 };
 /**
  * Fungsi untuk memverifikasi akun dengan token
- * @param admin_id ID user yang akan diverifikasi
+ * @param user_id ID user yang akan diverifikasi
  * @param token Token verifikasi yang dikirim ke email
  * @returns Promise dengan hasil verifikasi
  */
+export const verifyAccount = async (
+  user_id: number | string,
+  token: string
+): Promise<ApiResponse> => {
+  try {
+    const response = await fetch(`${BASE_URL}/verify_token.php`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id, token }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return {
+        success: false,
+        message: data.message || "Verifikasi gagal",
+      };
+    }
+
+    return {
+      success: data.success,
+      message: data.message,
+    };
+  } catch (error) {
+    console.error("Verification error:", error);
+    return {
+      success: false,
+      message: "Terjadi kesalahan jaringan saat verifikasi",
+    };
+  }
+};
+
+/**
+ * Fungsi untuk mengirim ulang token verifikasi
+ * @param email Email pengguna
+ * @returns Promise dengan informasi hasil pengiriman ulang token
+ */
+export const resendVerificationToken = async (
+  email: string
+): Promise<ApiResponse> => {
+  try {
+    const response = await fetch(`${BASE_URL}/resend-verification.php`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return {
+        success: false,
+        message:
+          data.message ||
+          `Error ${response.status}: Gagal mengirim ulang kode verifikasi`,
+      };
+    }
+
+    return {
+      success: data.success,
+      message: data.message,
+      data: data,
+    };
+  } catch (error) {
+    console.error(
+      "Resend verification error:",
+      error instanceof Error ? error.message : String(error)
+    );
+    return {
+      success: false,
+      message: "Terjadi kesalahan jaringan",
+    };
+  }
+};
 
 // Ambil data users
 export const getUsers = async (): Promise<User[]> => {
@@ -304,7 +362,7 @@ export const updateUser = async (userData: User) => {
 
 // Hapus user berdasarkan ID
 export const deleteUser = async (
-  admin_id: number
+  user_id: number
 ): Promise<{ success: boolean; message?: string }> => {
   try {
     const response = await fetch(`${BASE_URL}/hapus-data.php`, {
@@ -312,7 +370,7 @@ export const deleteUser = async (
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ admin_id }),
+      body: JSON.stringify({ user_id }),
     });
 
     const result = await response.json();
@@ -322,140 +380,3 @@ export const deleteUser = async (
     return { success: false, message: "Gagal menghubungi server" };
   }
 };
-
-export interface SIMData {
-  sim_id?: number;
-  user_id: number;
-  nomor_sim: string;
-  jenis_sim: "A" | "B" | "C" | "D";
-  tanggal_terbit: string;
-  tanggal_expired: string;
-  status_sim?: "Aktif" | "Nonaktif" | "Ditangguhkan";
-}
-
-// CRUD operations
-// export const getSIMs = async (admin_id: number) =>
-//   axios.get(`${BASE_URL}/sim-list.php?admin_id=${admin_id}`);
-
-export const getSIMs = async (): Promise<SIMData[]> => {
-  try {
-    const response = await axios.get(`${BASE_URL}/sim-list.php`);
-
-    // Debugging response structure
-    console.log("API Response:", response);
-
-    if (!response.data) {
-      throw new Error("Response data kosong");
-    }
-
-    if (Array.isArray(response.data)) {
-      return response.data;
-    }
-
-    throw new Error("Format response tidak valid");
-  } catch (error) {
-    console.error("Error fetching SIMs:", error);
-    throw error;
-  }
-};
-
-export const deleteSIM = async (sim_id: number): Promise<void> => {
-  try {
-    await axios.delete(`${BASE_URL}/delete-sim.php`, {
-      data: { sim_id },
-    });
-  } catch (error) {
-    console.error("Error deleting SIM:", error);
-    throw error;
-  }
-};
-
-const validateUser = (data: any): data is User => {
-  return (
-    typeof data.user_id === "number" &&
-    typeof data.nama_lengkap === "string" &&
-    typeof data.no_telepon === "string" &&
-    typeof data.email === "string"
-  );
-};
-
-// Fungsi untuk pencarian user
-export const searchUsers = async (query: string): Promise<User[]> => {
-  try {
-    const response = await axios.get(`${BASE_URL}/search-users.php`, {
-      params: { search: query },
-    });
-
-    // Validasi response
-    if (!Array.isArray(response.data)) {
-      throw new Error("Format response tidak valid");
-    }
-
-    // Type checking untuk setiap item
-    const validUsers = response.data.filter((item: any) => {
-      const isValid = validateUser(item);
-      if (!isValid) {
-        console.warn("Data user tidak valid:", item);
-      }
-      return isValid;
-    });
-
-    return validUsers as User[];
-  } catch (error) {
-    console.error("Error searching users:", error);
-    return [];
-  }
-};
-
-// export const createSIM = async (simData: SIMData): Promise<void> => {
-//   try {
-//     const response = await axios.post(`${BASE_URL}/create-sim.php`, simData);
-//     if (response.data.error) {
-//       throw new Error(response.data.error);
-//     }
-//   } catch (error) {
-//     console.error("Error creating SIM:", error);
-//     throw error;
-//   }
-// };
-
-// export const createSIM = async (simData: SIMData): Promise<SIMData> => {
-//   try {
-//     const response = await axios.post(`${BASE_URL}/create-sim.php`, simData);
-//     return response.data;
-//   } catch (error) {
-//     if (axios.isAxiosError(error)) {
-//       // Ambil pesan error dari response backend
-//       const errorMessage =
-//         error.response?.data?.error || "Gagal menyimpan data SIM";
-//       throw new Error(errorMessage);
-//     }
-//     throw new Error("Terjadi kesalahan saat menyimpan data");
-//   }
-// };
-
-// Contoh implementasi API service
-
-interface ApiError {
-  error: string;
-  status?: number;
-}
-
-export const createSIM = async (simData: SIMData): Promise<SIMData> => {
-  try {
-    const response = await axios.post<SIMData>(
-      `${BASE_URL}/create-sim.php`,
-      simData
-    );
-    return response.data;
-  } catch (error) {
-    if (axios.isAxiosError<ApiError>(error)) {
-      const serverError = error.response?.data;
-      throw new Error(serverError?.error || "Gagal menyimpan data SIM");
-    }
-    throw new Error("Terjadi kesalahan tidak terduga");
-  }
-};
-
-export const updateSIM = async (data: SIMData) =>
-  axios.put(`${BASE_URL}/sim-update.php`, data);

@@ -191,6 +191,16 @@ const ForgotPassword = () => {
                         </div>
                     </form>
                 )}
+
+                <div className="mt-6 text-center">
+                    <button
+                        type="button"
+                        onClick={() => navigate('/login')}
+                        className="text-sm text-indigo-600 hover:text-indigo-700"
+                    >
+                        ← Kembali ke Login
+                    </button>
+                </div>
             </div>
         </div>
     );
